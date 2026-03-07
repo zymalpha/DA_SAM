@@ -1,0 +1,20 @@
+# DA-SAM Stage 1 Configuration
+# ==============================
+
+# Model parameters
+UNET_BASE_CH = 32
+UNET_DEPTH = 4
+
+# Training parameters
+IMG_SIZE = 1024
+BATCH_SIZE = 2
+EPOCHS = 100
+LR = 0.0001
+WEIGHT_DECAY = 0.0001
+PATIENCE = 15
+NUM_WORKERS = 4
+SEED = 42
+
+# Data augmentation
+AUG_FLIP = T
+AUG_ROTATE = T
