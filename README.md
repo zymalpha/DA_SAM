@@ -176,8 +176,3 @@ python test_stage2.py --gpu_idx 0 --save_predictions
 ### Qualitative Comparison
 
 ![Qualitative results](assets/qualitative_results.png)
-
-## Notes
-
-- `DA_SAM_new` is the cleaned repository intended for GitHub release.
-- The old `DA_SAM` directory is the original prototype with mixed preprocessing and legacy files.
