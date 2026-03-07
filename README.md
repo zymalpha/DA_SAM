@@ -45,7 +45,7 @@ Main entry points:
 Install DA-SAM:
 
 ```bash
-git clone [<your-repo-url>](https://github.com/3067348049/DA_SAM)
+git clone https://github.com/3067348049/DA_SAM
 cd DA_SAM_new
 pip install -r requirements.txt
 ```
