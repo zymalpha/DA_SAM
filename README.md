@@ -1,6 +1,6 @@
 # DA-SAM: Dual-Adapter SAM with Learned Mask Prompts for CBCT Projection-Domain Metal Trace Segmentation
 
-Cleaned GitHub version of the DA-SAM pipeline for CBCT projection-domain metal trace segmentation.
+Official implementation of DA-SAM for CBCT projection-domain metal trace segmentation.
 
 ## Abstract
 
@@ -158,7 +158,6 @@ python train_stage2.py --gpu_idx 0
 ```bash
 cd code
 python test_stage1.py --gpu_idx 0
-python test_stage2.py --gpu_idx 0
 python test_stage2.py --gpu_idx 0 --save_predictions
 ```
 
