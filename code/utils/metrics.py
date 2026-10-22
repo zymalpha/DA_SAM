@@ -5,9 +5,28 @@ import numpy as np
 from scipy.ndimage import distance_transform_edt, binary_erosion
 
 
+def _binary_mask_pair(pred, gt):
+    """Validate matching finite 2D masks and normalize positive labels to bool."""
+    pred = np.asarray(pred)
+    gt = np.asarray(gt)
+    if pred.ndim != 2 or gt.ndim != 2 or pred.shape != gt.shape:
+        raise ValueError("Prediction and ground truth must be matching 2D masks")
+    if pred.size == 0:
+        raise ValueError("Masks must contain at least one pixel")
+    if not np.isfinite(pred).all() or not np.isfinite(gt).all():
+        raise ValueError("Masks must contain finite values")
+    return pred > 0, gt > 0
+
+
 def compute_hd95(pred, gt):
     """
-    Compute 95th percentile Hausdorff Distance
+    Compute the pooled bidirectional 95th percentile boundary distance.
+
+    Boundaries use SciPy's default binary erosion connectivity. Euclidean
+    distances are measured in pixels of the supplied 2D grid. Distances from
+    both directions are concatenated before taking the 95th percentile.
+    Two empty masks return 0; exactly one empty mask returns the existing
+    finite penalty of 50 pixels. Positive label values are treated as foreground.
 
     Args:
         pred: Binary prediction mask (H, W)
@@ -15,8 +34,7 @@ def compute_hd95(pred, gt):
     Returns:
         HD95 value
     """
-    pred_bin = pred > 0
-    gt_bin = gt > 0
+    pred_bin, gt_bin = _binary_mask_pair(pred, gt)
 
     # Handle edge cases
     if pred_bin.sum() == 0 and gt_bin.sum() == 0:
@@ -29,8 +47,8 @@ def compute_hd95(pred, gt):
     gt_border = gt_bin ^ binary_erosion(gt_bin)
 
     # Compute distance transforms
-    gt_dist = distance_transform_edt(~gt_bin)
-    pred_dist = distance_transform_edt(~pred_bin)
+    gt_dist = distance_transform_edt(~gt_border)
+    pred_dist = distance_transform_edt(~pred_border)
 
     # Get distances from each border to the other
     pred_to_gt = gt_dist[pred_border]
@@ -48,11 +66,13 @@ def get_full_metrics(pred, gt):
     Compute full evaluation metrics
 
     Args:
-        pred: Binary prediction (H, W)
-        gt: Binary ground truth (H, W)
+        pred: Binary prediction (H, W); positive labels are foreground
+        gt: Binary ground truth (H, W); positive labels are foreground
     Returns:
         Tuple of (dice, iou, hd95, precision, recall)
     """
+    pred, gt = _binary_mask_pair(pred, gt)
+
     # Handle edge cases
     if np.sum(pred) == 0 and np.sum(gt) == 0:
         return 1.0, 1.0, 0.0, 1.0, 1.0

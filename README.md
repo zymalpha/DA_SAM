@@ -13,7 +13,7 @@ Accurate segmentation of metal traces within the cone-beam computed tomography (
 ## Repository
 
 ```text
-DA_SAM_new/
+DA_SAM/
 |-- assets/
 |-- code/
 |   |-- preprocess/
@@ -45,12 +45,16 @@ Main entry points:
 Install DA-SAM:
 
 ```bash
-git clone https://github.com/3067348049/DA_SAM
-cd DA_SAM_new
+conda create -n dasam python=3.9
+conda activate dasam
+git clone https://github.com/zymalpha/DA_SAM.git
+cd DA_SAM
 pip install -r requirements.txt
 ```
 
-Exact tested package versions are listed in `requirements.txt`.
+The training dependency pins in `requirements.txt` target Python 3.9. OpenCV is
+pinned below 4.12 so it remains compatible with the pinned NumPy 1.24 / SciPy 1.10
+stack.
 
 Place the SAM checkpoint at:
 
@@ -161,7 +165,44 @@ python test_stage1.py --gpu_idx 0
 python test_stage2.py --gpu_idx 0 --save_predictions
 ```
 
-## Results
+## Numerical conventions and regression checks
+
+- Coarse masks and ground-truth labels are binary tensors with foreground value
+  `1`, in both training and inference. Image intensities alone are divided by
+  `255`. Masks use nearest-neighbor resizing.
+- AIA's modulation scale is a trainable scalar initialized from `MOD_SCALE`
+  (default `0.5`). The adapted image is clipped to `[0, 1]` before SAM input
+  normalization. Older AIA checkpoints without this scalar load with an explicit
+  warning and use the configured initial value; this cannot recover a scale that
+  was never stored.
+- Both training stages use the configured base segmentation loss, with default
+  BCE / Dice weights `0.8` / `2.0`. Stage II additionally uses pixel-averaged MSE
+  on the modulation map, with `LAMBDA_AUX=0.5` and `TARGET_MOD=0.3`.
+- HD95 uses Euclidean distances between the two extracted foreground boundaries.
+  The two directed distance sets are concatenated before taking the 95th
+  percentile. Both-empty masks return `0`; a single empty foreground receives
+  the explicit `50`-pixel penalty. Distances are measured on the resized
+  evaluation grid, after removing padding, rather than in millimeters or on the
+  original detector grid. The longest image side is resized to `IMG_SIZE`
+  (default `1024`).
+- Evaluation requires the trained Stage I and Stage II checkpoints. Stage II
+  training also requires the trained Stage I checkpoint.
+
+Run the CPU regression checks without private data or SAM checkpoints:
+
+```bash
+pip install -r requirements-dev.txt
+python -m pytest -q
+```
+
+## Reported results
+
+The table below preserves the original study's reported values. The numerical
+corrections above do not recompute or independently reproduce those values.
+Re-evaluate every compared method with the same corrected metric and preprocessing
+before making a new results table. Checkpoints trained with incorrectly scaled
+foreground targets require retraining; changing the evaluation code does not
+repair their training history.
 
 | Method | Dice | IoU | Precision | Recall | HD95 |
 |--------|------|-----|-----------|--------|------|
