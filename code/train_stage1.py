@@ -111,7 +111,7 @@ def train(cfg):
             # Loss
             bce = train_criterion(pred, gt)
             dl = dice_loss(pred, gt)
-            loss = bce + dl
+            loss = cfg.LAMBDA_BCE * bce + cfg.LAMBDA_DICE * dl
 
             # Backward
             optimizer.zero_grad()
@@ -140,7 +140,7 @@ def train(cfg):
 
                 bce = train_criterion(pred, gt)
                 dl = dice_loss(pred, gt)
-                loss = bce + dl
+                loss = cfg.LAMBDA_BCE * bce + cfg.LAMBDA_DICE * dl
 
                 metrics = compute_metrics(pred, gt)
 

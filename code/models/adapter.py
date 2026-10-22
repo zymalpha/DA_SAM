@@ -7,6 +7,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import math
+import warnings
 
 
 class ConvBlock(nn.Module):
@@ -35,7 +36,10 @@ class AIA(nn.Module):
 
     def __init__(self, in_ch=2, base_ch=32, mod_scale=0.5):
         super().__init__()
-        self.mod_scale = mod_scale
+        initial_scale = torch.tensor(float(mod_scale))
+        if not torch.isfinite(initial_scale).item():
+            raise ValueError("AIA mod_scale must be finite")
+        self.mod_scale = nn.Parameter(initial_scale)
 
         # Encoder
         self.enc1 = ConvBlock(in_ch, base_ch)
@@ -60,13 +64,47 @@ class AIA(nn.Module):
         nn.init.zeros_(self.out_conv.weight)
         nn.init.zeros_(self.out_conv.bias)
 
+    def _load_from_state_dict(
+        self, state_dict, prefix, local_metadata, strict,
+        missing_keys, unexpected_keys, error_msgs,
+    ):
+        # Older checkpoints used a fixed Python scalar, so they have no scale key.
+        scale_key = prefix + "mod_scale"
+        if scale_key not in state_dict:
+            warnings.warn(
+                "Legacy AIA checkpoint has no 'mod_scale'; using the initialized "
+                f"value {self.mod_scale.detach().item():g} for the learnable scale.",
+                UserWarning,
+                stacklevel=3,
+            )
+            state_dict[scale_key] = self.mod_scale.detach().clone()
+        else:
+            scale = state_dict[scale_key]
+            if (
+                not torch.is_tensor(scale)
+                or scale.shape != self.mod_scale.shape
+                or scale.is_complex()
+                or not torch.isfinite(scale).all().item()
+            ):
+                error_msgs.append(
+                    f'Invalid AIA parameter "{scale_key}": expected a finite '
+                    f'real scalar tensor with shape {tuple(self.mod_scale.shape)}.'
+                )
+                # PyTorch accepts some vector-to-scalar copies; prevent that
+                # compatibility behavior from silently changing this parameter.
+                state_dict[scale_key] = self.mod_scale.detach().clone()
+        super()._load_from_state_dict(
+            state_dict, prefix, local_metadata, strict,
+            missing_keys, unexpected_keys, error_msgs,
+        )
+
     def forward(self, img_ori, img_eq):
         """
         Args:
             img_ori: Original image (B, 1, H, W)
             img_eq: Equalized image (B, 1, H, W)
         Returns:
-            delta: Modulation factor (B, 1, H, W) in range [-mod_scale, mod_scale]
+            delta: Modulation (B, 1, H, W), bounded by abs(mod_scale)
         """
         x = torch.cat([img_ori, img_eq], dim=1)
 

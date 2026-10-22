@@ -9,6 +9,18 @@ from torch.utils.data import Dataset
 from segment_anything.utils.transforms import ResizeLongestSide
 
 
+def resize_binary_mask(mask, target_hw):
+    """Resize a 2D binary mask without creating interpolated foreground pixels."""
+    height, width = target_hw
+    if mask.ndim != 2 or height <= 0 or width <= 0:
+        raise ValueError("Binary masks must be 2D and have a positive target size")
+    return cv2.resize(
+        (mask > 0).astype(np.uint8),
+        (width, height),
+        interpolation=cv2.INTER_NEAREST,
+    )
+
+
 class BaseMetalDataset(Dataset):
     """Base dataset class for metal artifact reduction"""
 
@@ -88,8 +100,8 @@ class Stage1Dataset(BaseMetalDataset):
 
         # Resize
         img = self.rsz.apply_image(img)
-        mask = self.rsz.apply_image((mask > 0).astype(np.uint8) * 255)
-        gt = self.rsz.apply_image((gt > 0).astype(np.uint8) * 255)
+        mask = resize_binary_mask(mask, img.shape[:2])
+        gt = resize_binary_mask(gt, img.shape[:2])
 
         # Pad to square
         img = self._pad_image(img)
@@ -98,8 +110,8 @@ class Stage1Dataset(BaseMetalDataset):
 
         # To tensor
         img_t = self._to_tensor(img)
-        mask_t = self._to_tensor((mask > 0).astype(np.float32))
-        gt_t = self._to_tensor((gt > 0).astype(np.float32))
+        mask_t = self._to_tensor((mask > 0).astype(np.float32), normalize=False)
+        gt_t = self._to_tensor((gt > 0).astype(np.float32), normalize=False)
 
         return {"img": img_t, "mask": mask_t, "gt": gt_t}
 
@@ -137,8 +149,8 @@ class MetalArtifactDataset(BaseMetalDataset):
         # Resize
         img_ori = self.rsz.apply_image(img_ori)
         img_eq = self.rsz.apply_image(img_eq)
-        mask_coarse = self.rsz.apply_image((mask_coarse > 0).astype(np.uint8) * 255)
-        gt = self.rsz.apply_image((gt > 0).astype(np.uint8) * 255)
+        mask_coarse = resize_binary_mask(mask_coarse, img_ori.shape[:2])
+        gt = resize_binary_mask(gt, img_ori.shape[:2])
 
         # Pad to square
         img_ori = self._pad_image(img_ori)
@@ -149,8 +161,8 @@ class MetalArtifactDataset(BaseMetalDataset):
         # To tensor
         img_ori_t = self._to_tensor(img_ori)
         img_eq_t = self._to_tensor(img_eq)
-        mask_t = self._to_tensor((mask_coarse > 0).astype(np.float32))
-        gt_t = self._to_tensor((gt > 0).astype(np.float32))
+        mask_t = self._to_tensor((mask_coarse > 0).astype(np.float32), normalize=False)
+        gt_t = self._to_tensor((gt > 0).astype(np.float32), normalize=False)
 
         return {"img_ori": img_ori_t, "img_eq": img_eq_t, "mask_coarse": mask_t, "gt": gt_t}
 
@@ -227,8 +239,9 @@ class InferenceDataset(Dataset):
         # Resize
         img_ori = self.rsz.apply_image(img_ori)
         img_eq = self.rsz.apply_image(img_eq)
-        mask = self.rsz.apply_image((mask > 0).astype(np.uint8) * 255)
-        gt = self.rsz.apply_image((gt > 0).astype(np.uint8) * 255)
+        resized_hw = img_ori.shape[:2]
+        mask = resize_binary_mask(mask, resized_hw)
+        gt = resize_binary_mask(gt, resized_hw)
 
         # Pad
         img_ori = self._pad_image(img_ori)
@@ -248,5 +261,6 @@ class InferenceDataset(Dataset):
             "img_eq": img_eq_t,
             "mask": mask_t,
             "gt": gt_np,
-            "orig_hw": (h, w)
+            "orig_hw": (h, w),
+            "resized_hw": resized_hw,
         }

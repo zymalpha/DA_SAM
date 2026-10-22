@@ -25,14 +25,21 @@ def set_seed(seed):
 
 def build_model(cfg, device):
     """Build DA-SAM model for testing/inference"""
+    stage1_ckpt = os.path.join(cfg.OUTPUT_DIR, "stage1_unet", "best.pt")
+    stage2_ckpt = os.path.join(cfg.OUTPUT_DIR, "stage2_wfa", "best.pt")
+    for checkpoint_path in (stage1_ckpt, stage2_ckpt):
+        if not os.path.isfile(checkpoint_path):
+            raise FileNotFoundError(
+                f"Required trained checkpoint not found: {checkpoint_path}. "
+                "Evaluation requires both Stage 1 and Stage 2 trained weights."
+            )
+
     sam = sam_model_registry[cfg.MODEL_TYPE](checkpoint=cfg.SAM_CKPT)
 
     unet = UNetRefiner(in_ch=2, base_ch=cfg.UNET_BASE_CH, depth=cfg.UNET_DEPTH)
-    stage1_ckpt = os.path.join(cfg.OUTPUT_DIR, "stage1_unet", "best.pt")
-    if os.path.exists(stage1_ckpt):
-        ckpt = torch.load(stage1_ckpt, map_location=device)
-        unet.load_state_dict(ckpt["unet"])
-        print(f"Loaded U-Net from {stage1_ckpt}")
+    ckpt = torch.load(stage1_ckpt, map_location=device)
+    unet.load_state_dict(ckpt["unet"])
+    print(f"Loaded U-Net from {stage1_ckpt}")
 
     aia = AIA(in_ch=2, base_ch=cfg.AIA_CH, mod_scale=cfg.MOD_SCALE)
 
@@ -44,15 +51,13 @@ def build_model(cfg, device):
 
     model = DA_SAM(sam, unet, aia, freq_adapters, cfg).to(device)
 
-    stage2_ckpt = os.path.join(cfg.OUTPUT_DIR, "stage2_wfa", "best.pt")
-    if os.path.exists(stage2_ckpt):
-        ckpt = torch.load(stage2_ckpt, map_location=device)
-        model.aia.load_state_dict(ckpt["aia"])
-        model.freq_adapters.load_state_dict(ckpt["freq_adapters"])
-        model.sam.mask_decoder.load_state_dict(ckpt["decoder"])
-        print(f"Loaded DA-SAM from {stage2_ckpt}")
-        if "best_dice" in ckpt:
-            print(f"Checkpoint best dice: {ckpt['best_dice']:.4f}")
+    ckpt = torch.load(stage2_ckpt, map_location=device)
+    model.aia.load_state_dict(ckpt["aia"])
+    model.freq_adapters.load_state_dict(ckpt["freq_adapters"])
+    model.sam.mask_decoder.load_state_dict(ckpt["decoder"])
+    print(f"Loaded DA-SAM from {stage2_ckpt}")
+    if "best_dice" in ckpt:
+        print(f"Checkpoint best dice: {ckpt['best_dice']:.4f}")
 
     model.eval()
     return model
@@ -60,10 +65,15 @@ def build_model(cfg, device):
 
 @torch.no_grad()
 def evaluate(cfg, save_predictions=False):
-    """Evaluate DA-SAM on the test split and optionally save predictions."""
+    """Evaluate on the resized image grid after removing padding.
+
+    HD95 is measured in pixels of this grid, not original detector pixels.
+    Saved prediction masks use the same resized, unpadded grid.
+    """
     set_seed(cfg.SEED)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Device: {device}")
+    print(f"Metric grid: longest side resized to {cfg.IMG_SIZE}; padding excluded")
 
     test_ds = InferenceDataset(cfg.TEST_NAMES, cfg)
     print(f"Test samples: {len(test_ds)}")
@@ -110,8 +120,8 @@ def evaluate(cfg, save_predictions=False):
         loss = cfg.LAMBDA_BCE * bce + cfg.LAMBDA_DICE * dl.mean()
 
         pred_prob = torch.sigmoid(pred).cpu().numpy()[0, 0]
-        h, w = batch["orig_hw"]
-        pred_binary = (pred_prob[:h, :w] > cfg.THRESHOLD).astype(np.float32)
+        h, w = batch["resized_hw"]
+        pred_binary = (pred_prob[:h, :w] >= cfg.THRESHOLD).astype(np.float32)
         gt_cropped = batch["gt"][:h, :w]
 
         dice, iou, hd95, prec, rec = get_full_metrics(pred_binary, gt_cropped)

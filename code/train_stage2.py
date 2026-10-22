@@ -35,6 +35,13 @@ def set_seed(seed):
 
 def build_model(cfg, device):
     """Build DA-SAM model"""
+    stage1_ckpt_path = os.path.join(cfg.OUTPUT_DIR, "stage1_unet", "best.pt")
+    if not os.path.isfile(stage1_ckpt_path):
+        raise FileNotFoundError(
+            f"Required Stage 1 checkpoint not found: {stage1_ckpt_path}. "
+            "Train the mask prompt generator before starting Stage 2."
+        )
+
     print(f"\n{'='*60}")
     print(f"Building DA-SAM with WFA (Wavelet Frequency Adapter)")
     print(f"Adapter dim: {cfg.ADAPTER_DIM}, Scale: {cfg.ADAPTER_SCALE}")
@@ -49,13 +56,11 @@ def build_model(cfg, device):
     for p in sam.prompt_encoder.parameters():
         p.requires_grad = False
 
-    # U-Net Refiner (load from Stage 1 if available)
+    # U-Net Refiner (trained Stage 1 weights are required)
     unet = UNetRefiner(in_ch=2, base_ch=cfg.UNET_BASE_CH, depth=cfg.UNET_DEPTH)
-    stage1_ckpt_path = os.path.join(cfg.OUTPUT_DIR, "stage1_unet", "best.pt")
-    if os.path.exists(stage1_ckpt_path):
-        ckpt = torch.load(stage1_ckpt_path, map_location=device)
-        unet.load_state_dict(ckpt["unet"])
-        print(f"Loaded U-Net from {stage1_ckpt_path}")
+    ckpt = torch.load(stage1_ckpt_path, map_location=device)
+    unet.load_state_dict(ckpt["unet"])
+    print(f"Loaded U-Net from {stage1_ckpt_path}")
 
     # Freeze U-Net
     for p in unet.parameters():
